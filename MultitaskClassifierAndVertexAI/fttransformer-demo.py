@@ -35,39 +35,6 @@ from tabtransformertf.utils.preprocessing import df_to_dataset, build_categorica
 
 # COMMAND ----------
 
-CSV_HEADER = [
-    "age",
-    "workclass",
-    "fnlwgt",
-    "education",
-    "education_num",
-    "marital_status",
-    "occupation",
-    "relationship",
-    "race",
-    "gender",
-    "capital_gain",
-    "capital_loss",
-    "hours_per_week",
-    "native_country",
-    "income_bracket",
-]
-
-train_data_url = (
-    "https://archive.ics.uci.edu/ml/machine-learning-databases/adult/adult.data"
-)
-train_data = pd.read_csv(train_data_url, header=None, names=CSV_HEADER)
-
-test_data_url = (
-    "https://archive.ics.uci.edu/ml/machine-learning-databases/adult/adult.test"
-)
-test_data = pd.read_csv(test_data_url, header=None, names=CSV_HEADER)
-
-print(f"Train dataset shape: {train_data.shape}")
-print(f"Test dataset shape: {test_data.shape}")
-
-# COMMAND ----------
-
 # File location and type
 file_location = "/FileStore/tables/samaya_ml/training_sample.csv"
 file_type = "csv"
@@ -83,7 +50,7 @@ train_data_orders = spark.read.format(file_type) \
   .option("header", first_row_is_header) \
   .option("sep", delimiter) \
   .load(file_location).toPandas()
-
+train_data_orders['customer_average_spend'] =  np.random.randint(0,10000, size=len(train_data_orders))
 display(train_data_orders)
 
 # COMMAND ----------
@@ -104,10 +71,12 @@ test_data_orders = spark.read.format(file_type) \
   .option("sep", delimiter) \
   .load(file_location).toPandas()
 
-display(train_data_orders)
+display(test_data_orders)
 
 # COMMAND ----------
 
+
+test_data_orders['customer_average_spend'] = np.random.randint(0,10000, size=len(test_data_orders))
 print(f"Train dataset shape: {train_data_orders.shape}")
 print(f"Test dataset shape: {test_data_orders.shape}")
 
@@ -123,7 +92,7 @@ print(train_data_orders.columns)
 # COMMAND ----------
 
 # Column information
-NUMERIC_FEATURES = []
+NUMERIC_FEATURES = ['customer_average_spend']
 CATEGORICAL_FEATURES = ['basket_icon_click', 'basket_add_list', 'basket_add_detail', 'sort_by', 'image_picker', 'account_page_click', 'promo_banner_click', 'detail_wishlist_add', 'list_size_dropdown', 'closed_minibasket_click', 'checked_delivery_detail', 'checked_returns_detail', 'sign_in', 'saw_checkout', 'saw_sizecharts', 'saw_delivery', 'saw_account_upgrade', 'saw_homepage', 'device_mobile', 'device_computer', 'device_tablet', 'returning_user', 'loc_uk']
 
 FEATURES = list(NUMERIC_FEATURES) + list(CATEGORICAL_FEATURES)
@@ -135,6 +104,10 @@ LABEL = 'ordered'
 train_data_orders[LABEL] = train_data_orders[LABEL].apply(lambda x: int(x == '0')) 
 test_data_orders[LABEL] = test_data_orders[LABEL].apply(lambda x: int(x == '0'))
 train_data_orders[LABEL].mean(), test_data_orders[LABEL].mean()
+
+# COMMAND ----------
+
+display(test_data_orders)
 
 # COMMAND ----------
 
@@ -246,15 +219,11 @@ plt.show()
 
 # COMMAND ----------
 
-test_data.income_bracket.unique()
-
-# COMMAND ----------
-
 linear_test_preds = ft_linear_transformer.predict(test_dataset)
 print("FT-Transformer with Linear Numerical Embedding")
-print("Test ROC AUC:", np.round(roc_auc_score(test_data[LABEL], linear_test_preds['output'].ravel()), 4))
-print("Test PR AUC:", np.round(average_precision_score(test_data[LABEL], linear_test_preds['output'].ravel()), 4))
-print("Test Accuracy:", np.round(accuracy_score(test_data[LABEL], linear_test_preds['output'].ravel()>0.5), 4))
+#print("Test ROC AUC:", np.round(roc_auc_score(test_data_orders[LABEL], linear_test_preds['output'].ravel()), 4))
+print("Test PR AUC:", np.round(average_precision_score(test_data_orders[LABEL], linear_test_preds['output'].ravel()), 4))
+print("Test Accuracy:", np.round(accuracy_score(test_data_orders[LABEL], linear_test_preds['output'].ravel()>0.5), 4))
 
 # Reported accuracy - 0.858
 
@@ -276,7 +245,7 @@ linear_total_importances = get_model_importances(
 # Largest prediction
 max_idx = np.argsort(linear_test_preds['output'].ravel())[-1]
 example_importance_linear = linear_importances_df.iloc[max_idx, :].sort_values(ascending=False).rename("Importance").to_frame().join(
-    test_data.iloc[max_idx, :].rename("Example Vlaue")
+    test_data_orders.iloc[max_idx, :].rename("Example Vlaue")
 ).head(5)
 print(f"Top 5 contributions to row {max_idx} which was scored {str(np.round(linear_test_preds['output'].ravel()[max_idx], 4))}")
 display(example_importance_linear)
@@ -284,7 +253,7 @@ display(example_importance_linear)
 # Smallest one
 min_idx = np.argsort(linear_test_preds['output'].ravel())[0]
 example_importance_linear = linear_importances_df.iloc[min_idx, :].sort_values(ascending=False).rename("Importance").to_frame().join(
-    test_data.iloc[min_idx, :].rename("Example Vlaue")
+    test_data_orders.iloc[min_idx, :].rename("Example Vlaue")
 ).head(5)
 print(f"Top 5 contributions to row {min_idx} which was scored {str(np.round(linear_test_preds['output'].ravel()[min_idx], 4))}")
 display(example_importance_linear)
