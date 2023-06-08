@@ -56,6 +56,7 @@ print(model_uri)
 
 # COMMAND ----------
 
+
 # Really simple Vertex client instantiation
 vtx_client = mlflow.deployments.get_deploy_client("google_cloud")
 deploy_name = f"{model_name}-{model_version}"
@@ -74,3 +75,7 @@ predictions = vtx_client.predict(deploy_name, X_test)
 # COMMAND ----------
 
 print(predictions)
+
+# COMMAND ----------
+
+
