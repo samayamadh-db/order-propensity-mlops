@@ -6,7 +6,11 @@
 # COMMAND ----------
 
 # MAGIC %pip install google-cloud-mlflow
-# MAGIC %pip install pytorch-tabnet
+# MAGIC %pip install protobuf==3.20.0
+
+# COMMAND ----------
+
+dbutils.library.restartPython()
 
 # COMMAND ----------
 
@@ -18,8 +22,7 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import roc_auc_score, average_precision_score, accuracy_score
 from sklearn.preprocessing import StandardScaler
-
-from pytorch_tabnet.tab_model import TabNetClassifier
+from sklearn.ensemble import RandomForestClassifier
 
 
 import mlflow
@@ -126,115 +129,52 @@ X_train.columns
 
 # MAGIC %md
 # MAGIC ## Step 4: Model Training 
-# MAGIC FTTransformer  - Linear Numerical Encoding
+# MAGIC
 
 # COMMAND ----------
 
 
-
-
-# mlflow.sklearn.autolog() requires mlflow 1.11.0 or above.
 mlflow.sklearn.autolog()
+
+reg_rf = RandomForestClassifier()
+with mlflow.start_run() as run: 
+  reg_rf.fit(X_train, y_train)
+y_pred = reg_rf.predict(X_test)
+
+# COMMAND ----------
+
+from sklearn import metrics
+
+print(metrics.classification_report(y_test, y_pred))
+
+# COMMAND ----------
+
+import mlflow
+logged_model_uri = f"runs:/{run.info.run_id}/model"
  
-# With autolog() enabled, all model parameters, a model score, and the fitted model are automatically logged.  
-with mlflow.start_run() as run:  
-    clf = TabNetClassifier()
-    clf.fit(X_train.to_numpy(), y_train.to_numpy(), max_epochs = 2)  
-mlflow.end_run()
+
+# Load model as a PyFuncModel.
+loaded_model = mlflow.sklearn.load_model(logged_model_uri)
 
 
 # COMMAND ----------
 
-preds = clf.predict(X_test.to_numpy())
+
+summaries = loaded_model.predict(X_test)
 
 # COMMAND ----------
 
-print(preds)
-
-# COMMAND ----------
-
-print(y_test.to_numpy())
+summaries
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Step 5: Model Evaluation 
+# MAGIC ## Step 7: Push model to MLFlow Model Registry 
 
 # COMMAND ----------
 
-fig, ax = plt.subplots(nrows=1, ncols=2)
-
-ax[0].plot(ft_linear_history.history['loss'], label='Training Loss')
-ax[0].plot(ft_linear_history.history['val_loss'], label='Validation Loss')
-ax[0].legend()
-
-ax[1].plot(ft_linear_history.history['output_PR AUC'], label='Training PR AUC')
-ax[1].plot(ft_linear_history.history['val_output_PR AUC'], label='Validation PR AUC')
-ax[1].legend()
-
-plt.show()
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## Step 6: Package model and log it to mlflow 
-
-# COMMAND ----------
-
-# Define the model class
-class TabTransformerWrapper(mlflow.pyfunc.PythonModel):
-    def __init__(self, n):
-      self.tabt_model = n
-      
-    def predict(self, context,  model_input):
-        return self.tabt_model.predict(model_input)
-
-# COMMAND ----------
-
-# add tabtransformertf and tensorflow-addons to conda environment info
-conda_env = mlflow.pyfunc.get_default_conda_env()
-conda_env['dependencies'][2]['pip'] += ['pytorch-tabnet==2.0.1'] 
-
-
-
-# COMMAND ----------
-
-conda_env
-
-# COMMAND ----------
-
-mlflow_pyfunc_model_path = "orderpropensity_tabtrans"
-# save model run to mlflow
-
-with mlflow.start_run(run_name='tab_transformer_samaya_run') as run:
- mlflow.pyfunc.log_model(mlflow_pyfunc_model_path,python_model=TabTransformerWrapper(clf), conda_env=conda_env, input_example=X_test.to_numpy())
-mlflow.end_run()
-
-
-# COMMAND ----------
-
-X_test.to_numpy()
-
-# COMMAND ----------
-
-model_uri = "runs:/{0}/{1}".format(run.info.run_id,mlflow_pyfunc_model_path)
-print(model_uri)
-loaded_model = mlflow.pyfunc.load_model(model_uri=model_uri)
-loaded_model.predict(pd.DataFrame(X_test).to_numpy())
-
-# COMMAND ----------
-
-linear_test_preds = loaded_model.predict(X_test.to_numpy())
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## Step 7: Push model to Model Registry 
-
-# COMMAND ----------
-
-deploy_name = 'orderpropensity_tabtrans_model'
-mlflow.register_model(model_uri, deploy_name)
+deploy_name = 'orderpropensity_sklearn_model'
+mlflow.register_model(logged_model_uri, deploy_name)
 
 # COMMAND ----------
 
@@ -246,13 +186,8 @@ print(deploy_uri)
 
 # COMMAND ----------
 
-model = mlflow.pyfunc.load_model(deploy_uri)
-model.predict(X_test.to_numpy())
-
-# COMMAND ----------
-
-model_name = "tabnet-multitask-classifier-samaya"
-mlflow.sklearn.log_model(clf, model_name, registered_model_name=model_name)
+model = mlflow.sklearn.load_model(deploy_uri)
+model.predict(X_test)
 
 # COMMAND ----------
 
@@ -272,7 +207,7 @@ print("registry_uri: " + registry_uri)
 # COMMAND ----------
 
 mlflow.set_registry_uri(registry_uri)
-mlflow.register_model(model_uri=model_uri, name="smadhavan_tabtrans_from_gcp")
+mlflow.register_model(model_uri=deploy_uri, name="smadhavan_sklearn_from_gcp")
 
 # COMMAND ----------
 
@@ -286,17 +221,23 @@ vtx_client = mlflow.deployments.get_deploy_client("google_cloud")
 # Deploy to Vertex AI using three lines of code! Note: If using python > 3.7, this may take up to 20 minutes.
 deployment = vtx_client.create_deployment(
     name=deploy_name,
-    model_uri=deploy_uri,config= dict(machine_type= "n1-standard-2",
-            min_replica_count=1,
-            max_replica_count=1,
-            endpoint_deploy_timeout=18000))
+    model_uri=deploy_uri)
 
 # COMMAND ----------
 
+#vtx_client = mlflow.deployments.get_deploy_client("google_cloud")
 vtx_client.list_deployments()
 
 # COMMAND ----------
 
 # Use the .predict() method from the same plugin
-predictions = vtx_client.predict(deploy_name, X_test.to_numpy())
+predictions = vtx_client.predict("orderpropensity_sklearn_model", X_test.head(100))
 print(predictions)
+
+# COMMAND ----------
+
+type(X_test)
+
+# COMMAND ----------
+
+
